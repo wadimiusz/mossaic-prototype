@@ -46,6 +46,12 @@ Since we know the value N and hence the precision obtained by the sampling metho
 uv sync
 ```
 
+If you plan to contribute, also install the dev dependencies and register the pre-commit hooks (runs ruff on every commit):
+
+```bash
+uv sync --dev && uv run pre-commit install
+```
+
 ### Configure API key
 
 Create a `.env` file in the project root:

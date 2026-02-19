@@ -59,4 +59,6 @@ def estimate(layers, activation, a, t, input_cov):
     input_cov: covariance matrix of the Gaussian input, shape (d_in, d_in)
     """
     return 0.5
+
+
 # EVOLVE-BLOCK-END

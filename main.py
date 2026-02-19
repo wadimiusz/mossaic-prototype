@@ -1,13 +1,9 @@
 import asyncio
 import logging
-import os
 from typing import Dict, List
 
 import openai
 from dotenv import load_dotenv
-
-load_dotenv()
-
 from openevolve import OpenEvolve
 from openevolve.config import load_config
 from openevolve.llm.base import LLMInterface
@@ -94,6 +90,7 @@ def create_responses_llm(model_cfg):
 
 
 async def main():
+    load_dotenv()
     config = load_config("config.yaml")
 
     for model in config.llm.models:

@@ -159,18 +159,20 @@ def generate_tasks(rng):
         scores = y @ a
 
         for target_log_p in TARGET_LOG_PROBS:
-            target_p = 10.0 ** target_log_p
+            target_p = 10.0**target_log_p
             t = float(np.quantile(scores, 1 - target_p))
 
-            tasks.append({
-                "layers": layers,
-                "activation": activation_name,
-                "a": a,
-                "t": t,
-                "input_cov": input_cov,
-                "ground_truth": target_p,
-                "forward_pass_flops": compute_forward_pass_flops(layers),
-            })
+            tasks.append(
+                {
+                    "layers": layers,
+                    "activation": activation_name,
+                    "a": a,
+                    "t": t,
+                    "input_cov": input_cov,
+                    "ground_truth": target_p,
+                    "forward_pass_flops": compute_forward_pass_flops(layers),
+                }
+            )
 
     return tasks
 
@@ -207,11 +209,12 @@ def get_baseline_flops():
     global _cached_baseline_flops
     if _cached_baseline_flops is None:
         npz_path, manifest_path = get_task_files()
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py") as noop_f, \
-             tempfile.NamedTemporaryFile(suffix=".json") as noop_results_f:
+        with (
+            tempfile.NamedTemporaryFile(mode="w", suffix=".py") as noop_f,
+            tempfile.NamedTemporaryFile(suffix=".json") as noop_results_f,
+        ):
             noop_f.write(
-                "def estimate(layers, activation, a, t, input_cov):\n"
-                "    return 0.0\n"
+                "def estimate(layers, activation, a, t, input_cov):\n    return 0.0\n"
             )
             noop_f.flush()
             _, _cached_baseline_flops = _run_candidate(
@@ -256,12 +259,14 @@ def save_tasks(tasks, npz_path, manifest_path):
         arrays[f"t_{i}"] = np.array([task["t"]])
         arrays[f"input_cov_{i}"] = task["input_cov"]
 
-        manifest.append({
-            "n_layers": len(task["layers"]),
-            "activation": task["activation"],
-            "ground_truth": task["ground_truth"],
-            "forward_pass_flops": task["forward_pass_flops"],
-        })
+        manifest.append(
+            {
+                "n_layers": len(task["layers"]),
+                "activation": task["activation"],
+                "ground_truth": task["ground_truth"],
+                "forward_pass_flops": task["forward_pass_flops"],
+            }
+        )
 
     np.savez(npz_path, **arrays)
     with open(manifest_path, "w") as f:
@@ -280,15 +285,17 @@ def load_tasks(npz_path, manifest_path):
             W = data[f"W_{i}_{j}"]
             b = data[f"b_{i}_{j}"]
             layers.append((W, b))
-        tasks.append({
-            "layers": layers,
-            "activation": meta["activation"],
-            "a": data[f"a_{i}"],
-            "t": float(data[f"t_{i}"][0]),
-            "input_cov": data[f"input_cov_{i}"],
-            "ground_truth": meta["ground_truth"],
-            "forward_pass_flops": meta["forward_pass_flops"],
-        })
+        tasks.append(
+            {
+                "layers": layers,
+                "activation": meta["activation"],
+                "a": data[f"a_{i}"],
+                "t": float(data[f"t_{i}"][0]),
+                "input_cov": data[f"input_cov_{i}"],
+                "ground_truth": meta["ground_truth"],
+                "forward_pass_flops": meta["forward_pass_flops"],
+            }
+        )
     return tasks
 
 
@@ -327,16 +334,23 @@ with open({results_path!r}, 'w') as f:
 def _run_candidate(program_path, npz_path, manifest_path, results_path):
     """Run a candidate program via perf stat and return (perf_result, flops)."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py") as wrapper_f:
-        wrapper_f.write(make_wrapper_script(
-            program_path, npz_path, manifest_path, results_path
-        ))
+        wrapper_f.write(
+            make_wrapper_script(program_path, npz_path, manifest_path, results_path)
+        )
         wrapper_f.flush()
 
         result = subprocess.run(
             [
-                "perf", "stat", "-e", PERF_EVENT, "--",
-                "taskset", "-c", E_CORE,
-                sys.executable, wrapper_f.name,
+                "perf",
+                "stat",
+                "-e",
+                PERF_EVENT,
+                "--",
+                "taskset",
+                "-c",
+                E_CORE,
+                sys.executable,
+                wrapper_f.name,
             ],
             capture_output=True,
             text=True,
@@ -347,12 +361,12 @@ def _run_candidate(program_path, npz_path, manifest_path, results_path):
 
 
 def evaluate_before_wrapper(program_path):
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Evaluating: {program_path}")
-    print('='*60)
+    print("=" * 60)
     with open(program_path) as f:
         print(f.read())
-    print('='*60)
+    print("=" * 60)
 
     tasks = get_tasks()
     npz_path, manifest_path = get_task_files()

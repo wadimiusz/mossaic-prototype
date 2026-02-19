@@ -10,3 +10,6 @@ dependencies = [
     "python-dotenv",
     "scipy",
 ]
+
+[dependency-groups]
+dev = ["pre-commit"]
