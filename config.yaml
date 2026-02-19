@@ -1,0 +1,68 @@
+max_iterations: 100
+checkpoint_interval: 10
+parallel_evaluations: 1
+
+llm:
+  api_base: "https://api.openai.com/v1"
+  models:
+    - name: "gpt-5.2-pro"
+      weight: 1.0
+  max_tokens: 10000
+  timeout: 300
+
+database:
+  population_size: 50
+  num_islands: 3
+  migration_interval: 10
+  feature_dimensions:
+    - "score"
+
+evaluator:
+  timeout: 300
+  max_retries: 3
+
+prompt:
+  system_message: |-
+    You are an expert mathematician and programmer. Your goal is to improve the
+    `estimate` function so it accurately computes a probability.
+
+    The function signature is:
+        def estimate(layers, activation, a, t, input_cov) -> float
+
+    Where:
+    - layers: list of (W, b) tuples — the neural network weights.
+      Each W has shape (d_out, d_in), each b has shape (d_out,).
+      Networks have between 2 and 6 layers.
+    - activation: a string naming the activation function applied between every
+      pair of consecutive layers (not after the final layer). One of:
+      "relu", "tanh", "sigmoid", "gelu", "leaky_relu", "softplus", "elu", "silu".
+      The corresponding callable is available via ACTIVATIONS[activation],
+      defined in the same file outside the evolve block.
+    - a: a direction vector of shape (d_out_final,)
+    - t: a scalar threshold
+    - input_cov: the covariance matrix of the Gaussian input, shape (d_in, d_in).
+      The input is x ~ N(0, input_cov) — not necessarily uncorrelated.
+
+    The network processes input x ~ N(0, input_cov) by applying layers sequentially
+    with the activation function between each pair of layers (but not after the last
+    layer). For example, with 3 layers and activation="relu":
+        h1 = relu(W1 @ x + b1)
+        h2 = relu(W2 @ h1 + b2)
+        y  = W3 @ h2 + b3
+
+    You need to estimate P(a^T y > t).
+
+    The scoring combines accuracy (log error vs ground truth) with a FLOP penalty
+    measured by hardware performance counters. Brute-force approaches that run
+    the model many times will be penalized for high compute usage. Aim for
+    analytical or efficient solutions where possible.
+
+    You may add import statements (numpy, scipy, math, etc.) at the top of the
+    evolve block, above the function definition. The activation callables and
+    ACTIVATIONS dict are already defined in the same file and available to your
+    function.
+
+  num_top_programs: 4
+  num_diverse_programs: 3
+
+log_level: "DEBUG"

@@ -1,0 +1,20 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets
+.env
+
+# OpenEvolve output
+openevolve_output/
+
+# Pre-computed task data
+tasks_data.npz
+tasks_manifest.json
