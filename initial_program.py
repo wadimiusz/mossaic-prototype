@@ -47,18 +47,51 @@ ACTIVATIONS = {
 
 
 # EVOLVE-BLOCK-START
-def estimate(layers, activation, a, t, input_cov):
-    """Estimate P(a^T y > t) where y is the output of a neural network
+def build_dist(layers, activation, input_cov):
+    """Build a distribution q(y) approximating the output of a neural network
     with input x ~ N(0, input_cov).
 
     layers: list of (W, b) tuples — the network weights (2 to 6 layers)
     activation: name of the activation function applied between layers
         (look up the callable via ACTIVATIONS[activation])
-    a: direction vector
-    t: threshold
     input_cov: covariance matrix of the Gaussian input, shape (d_in, d_in)
+
+    Returns: DistGraph v1 dict describing q(y).
     """
-    return 0.5
+    d_out = layers[-1][0].shape[0]
+    return {
+        "format": "mossaic.distgraph",
+        "version": 1,
+        "root": "y_dist",
+        "nodes": [
+            {"id": "mu", "kind": "const", "value": [0.0] * d_out},
+            {"id": "raw_scale", "kind": "const", "value": [0.0] * d_out},
+            {
+                "id": "scale",
+                "kind": "tensor_op",
+                "op": "softplus",
+                "args": [{"$ref": "raw_scale"}],
+                "kwargs": {},
+            },
+            {
+                "id": "base",
+                "kind": "call",
+                "callable": "torch.distributions.Normal",
+                "returns": "distribution",
+                "kwargs": {"loc": {"$ref": "mu"}, "scale": {"$ref": "scale"}},
+            },
+            {
+                "id": "y_dist",
+                "kind": "call",
+                "callable": "torch.distributions.Independent",
+                "returns": "distribution",
+                "kwargs": {
+                    "base_distribution": {"$ref": "base"},
+                    "reinterpreted_batch_ndims": 1,
+                },
+            },
+        ],
+    }
 
 
 # EVOLVE-BLOCK-END

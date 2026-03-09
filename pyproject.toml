@@ -3,13 +3,24 @@ name = "mossaic-prototype"
 version = "0.1.0"
 description = "Evaluator harness for evolving substrate-independent interpretability methods"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = "==3.13.*"
 dependencies = [
     "numpy",
-    "openevolve>=0.2.26",
+    "openevolve",
     "python-dotenv",
     "scipy",
+    "torch",
+    "pyro-ppl",
 ]
 
 [dependency-groups]
 dev = ["pre-commit"]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+

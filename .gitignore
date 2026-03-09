@@ -12,7 +12,7 @@ wheels/
 # Secrets
 .env
 
-# OpenEvolve output
+# Evolution output
 openevolve_output/
 
 # Pre-computed task data

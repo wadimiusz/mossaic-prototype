@@ -52,13 +52,15 @@ If you plan to contribute, also install the dev dependencies and register the pr
 uv sync --dev && uv run pre-commit install
 ```
 
-### Configure API key
+### Configure API keys
 
-Create a `.env` file in the project root:
+Create a `.env` file in the project root (see `.env.example`):
 
 ```
-OPENAI_API_KEY=sk-...
+OPENAI_API_KEY=...  # OpenRouter key (sk-or-...) or OpenAI key (sk-...)
 ```
+
+To switch between OpenRouter and direct OpenAI, change `api_base` in `config.yaml` — no `.env` changes needed.
 
 ### Hardware: enable perf counters
 
@@ -81,13 +83,11 @@ sudo sysctl --system
 
 ### Sanity check
 
-Runs an MC stability cross-check across all 80 tasks, then scores a trivial estimator:
+Runs DistGraph executor tests and scores a trivial estimator across 20 architectures:
 
 ```bash
 uv run python smoke_test.py
 ```
-
-The first run generates and caches task data to `tasks_data.npz` + `tasks_manifest.json` (~2 min). Subsequent runs load from disk instantly.
 
 ### Run evolution
 
