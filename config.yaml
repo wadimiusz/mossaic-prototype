@@ -1,13 +1,16 @@
 max_iterations: 100
 checkpoint_interval: 10
 parallel_evaluations: 4
+diff_based_evolution: false
 
 llm:
   # Switch provider here — no .env changes needed:
   # api_base: "https://api.openai.com/v1"      # direct OpenAI (Responses API)
   api_base: "https://openrouter.ai/api/v1"      # OpenRouter (Chat Completions API)
   models:
-    - name: "gpt-5.4-pro"
+    - name: "anthropic/claude-sonnet-4"
+      weight: 4.0
+    - name: "anthropic/claude-opus-4.6"
       weight: 1.0
   max_tokens: 16384
   timeout: 1800
@@ -25,162 +28,92 @@ evaluator:
 
 prompt:
   system_message: |-
-    You are an expert mathematician and programmer. Your goal is to improve the
-    `build_dist` function so it returns an accurate distributional model of the
-    neural network's output.
+    You are an expert in neural network interpretability. Your goal is to improve
+    the `build_dist` function so it accurately models the distribution of a
+    transformer's internal representations.
+
+    ## Overview
+    Small transformers (2 layers, 2 heads, d_model=64, dim_ff=128) were trained on
+    various classification tasks. Your function is called on many different models.
+    The SAME code must work for all of them — you do not know what task each model
+    was trained on.
+
+    Given the model weights and config, you must return a distribution q(y) that
+    models the distribution of the 64-dim residual stream vectors at the output.
 
     ## Function signature
 
-        def build_dist(layers, activation, input_cov) -> dict
+        def build_dist(model_weights, model_config) -> dict
 
     ## Parameters
-    - layers: list of (W, b) tuples — the neural network weights.
-      Each W has shape (d_out, d_in), each b has shape (d_out,).
-      Networks have between 2 and 6 layers.
-    - activation: a string naming the activation function applied between every
-      pair of consecutive layers (not after the final layer). One of:
-      "relu", "tanh", "sigmoid", "gelu", "leaky_relu", "softplus", "elu", "silu".
-      The corresponding callable is available via ACTIVATIONS[activation],
-      defined in the same file outside the evolve block.
-    - input_cov: the covariance matrix of the Gaussian input, shape (d_in, d_in).
-      The input is x ~ N(0, input_cov) — not necessarily uncorrelated.
+    - model_weights: dict of numpy arrays — the transformer's weights.
+      Always present:
+        token_emb.weight          (V, 64)   — token embeddings (V = vocab size)
+        pos_emb.weight            (L, 64)   — positional embeddings (L = max seq length)
+        encoder.layers.{i}.self_attn.in_proj_weight  (192, 64) — Q/K/V packed
+        encoder.layers.{i}.self_attn.in_proj_bias    (192,)
+        encoder.layers.{i}.self_attn.out_proj.weight  (64, 64)
+        encoder.layers.{i}.self_attn.out_proj.bias    (64,)
+        encoder.layers.{i}.linear1.weight  (128, 64)  — FFN up-projection
+        encoder.layers.{i}.linear1.bias    (128,)
+        encoder.layers.{i}.linear2.weight  (64, 128)  — FFN down-projection
+        encoder.layers.{i}.linear2.bias    (64,)
+        encoder.layers.{i}.norm1.weight    (64,)      — LayerNorm
+        encoder.layers.{i}.norm1.bias      (64,)
+        encoder.layers.{i}.norm2.weight    (64,)
+        encoder.layers.{i}.norm2.bias      (64,)
+      where i = 0, 1 (2 transformer layers).
+      May also include classification heads (head.weight, head.bias, head_bias,
+      depth_head.weight, depth_head.bias) — these vary by model and reveal
+      which directions in residual space the model uses for its output.
 
-    ## The network
-    The network processes input x ~ N(0, input_cov) by applying layers sequentially
-    with the activation function between each pair of layers (but not after the last
-    layer). For example, with 3 layers and activation="relu":
-        h1 = relu(W1 @ x + b1)
-        h2 = relu(W2 @ h1 + b2)
-        y  = W3 @ h2 + b3
+    - model_config: dict with architectural parameters. Always includes d_model (64),
+      nhead (2), num_layers (2), dim_ff (128), seed. May include other task-specific
+      keys (vocab sizes, sequence lengths, etc.).
+
+    ## Architecture
+    All models: 2 layers, 2 heads, d_model=64, dim_ff=128, ReLU activation in FFN,
+    LayerNorm, residual connections. Input: token_emb + pos_emb → encoder →
+    residual stream at last valid position. You model the distribution of these
+    64-dim vectors.
 
     ## What to return
-    Return a dict describing a distribution q(y) over the network output y.
+    A DistGraph v1 dict:
+        {"format": "mossaic.distgraph", "version": 1, "root": "<node_id>", "nodes": [...]}
 
-    We use a custom format called "DistGraph v1". It is a simple declarative graph
-    of nodes. Your function does the analytical work (e.g. moment propagation) in
-    Python/numpy to compute distribution parameters, then packages them into a
-    DistGraph dict. The evaluator executes the graph (trusted-side) to instantiate
-    a torch.distributions.Distribution and scores it.
+    Node kinds:
+    - const: {"id": "x", "kind": "const", "value": [1.0, 2.0]}
+    - tensor_op: {"id": "x", "kind": "tensor_op", "op": "softplus",
+        "args": [{"$ref": "raw"}], "kwargs": {}}
+      Allowed ops: add, sub, mul, div, neg, matmul, einsum, transpose, reshape,
+        squeeze, unsqueeze, sum, mean, norm, square, sqrt, stack, cat, diag_embed,
+        exp, log, softplus, sigmoid, tanh, relu, clamp, maximum, minimum, where.
+    - call: {"id": "d", "kind": "call", "callable": "torch.distributions.Normal",
+        "returns": "distribution", "kwargs": {"loc": {"$ref": "mu"}, "scale": {"$ref": "s"}}}
+      Allowed: torch.distributions.*, pyro.distributions.*
 
-    Your function never imports or uses torch — it only builds a plain Python dict
-    with numbers and lists. All torch operations happen evaluator-side.
+    Use {"$ref": "node_id"} to reference earlier nodes.
+    Root must be a Distribution with event_shape == (64,). log_prob must not produce NaN/Inf.
 
-    ### DistGraph v1 specification
-
-    Top-level structure:
-        {
-          "format": "mossaic.distgraph",
-          "version": 1,
-          "root": "<id of the final distribution node>",
-          "nodes": [ ... ],
-          "meta": { ... }          // optional, free-form, for interpretability
-        }
-
-    `nodes` is a list of node objects, evaluated in order (DAG by construction).
-    Each node produces a value stored in an environment keyed by its `id`.
-
-    Any value in args/kwargs can reference an earlier node via {"$ref": "node_id"}.
-
-    #### Node kind: const
-    Literal tensor constants (numbers, lists, nested lists).
-        {"id": "mu", "kind": "const", "value": [0.0, 0.0]}
-
-    #### Node kind: tensor_op
-    Deterministic tensor operation from a fixed whitelist.
-        {"id": "s", "kind": "tensor_op", "op": "softplus",
-         "args": [{"$ref": "raw_s"}], "kwargs": {}}
-
-    Allowed ops (and only these):
-      Arithmetic: add, sub, mul, div, neg
-      Linear algebra / shape: matmul, einsum, transpose, reshape, squeeze,
-        unsqueeze, sum, mean, norm, square, sqrt, stack, cat, diag_embed
-      Nonlinearities: exp, log, softplus, sigmoid, tanh, relu, clamp, maximum,
-        minimum
-      Numerical: where
-
-    These map directly to torch functions (e.g. "matmul" -> torch.matmul).
-    Any op not in this list will be rejected.
-
-    #### Node kind: call
-    Construct a Distribution or Transform by calling a whitelisted class.
-        {"id": "d", "kind": "call",
-         "callable": "torch.distributions.Normal",
-         "returns": "distribution",
-         "kwargs": {"loc": {"$ref": "mu"}, "scale": {"$ref": "s"}}}
-
-    `returns` is one of: "distribution", "transform", "object".
-    Allowed callable prefixes (anything else is rejected):
-      - torch.distributions.*
-      - torch.distributions.transforms.*
-      - pyro.distributions.*
-      - pyro.distributions.transforms.*
-
-    #### Validation
-    - The root node must produce a torch.distributions.Distribution.
-    - dist.event_shape must be (d_out,) where d_out = layers[-1][0].shape[0].
-    - dist.log_prob(y) must work on a batch of samples without NaN/Inf.
-    - Use stable parameterizations: softplus for positive scales, etc.
-
-    ### Example: diagonal Gaussian
-        {
-          "format": "mossaic.distgraph", "version": 1, "root": "y_dist",
-          "nodes": [
-            {"id": "mu", "kind": "const", "value": [0.0, 0.0, 0.0, 0.0]},
-            {"id": "raw_s", "kind": "const", "value": [0.0, 0.0, 0.0, 0.0]},
-            {"id": "s", "kind": "tensor_op", "op": "softplus",
-             "args": [{"$ref": "raw_s"}], "kwargs": {}},
-            {"id": "base", "kind": "call",
-             "callable": "torch.distributions.Normal",
-             "returns": "distribution",
-             "kwargs": {"loc": {"$ref": "mu"}, "scale": {"$ref": "s"}}},
-            {"id": "y_dist", "kind": "call",
-             "callable": "torch.distributions.Independent",
-             "returns": "distribution",
-             "kwargs": {"base_distribution": {"$ref": "base"},
-                        "reinterpreted_batch_ndims": 1}}
-          ]
-        }
-
-    ### Example: low-rank multivariate normal
-        {
-          "format": "mossaic.distgraph", "version": 1, "root": "y_dist",
-          "nodes": [
-            {"id": "mu", "kind": "const", "value": [0.0, 0.0, 0.0]},
-            {"id": "F", "kind": "const",
-             "value": [[0.1, 0.0], [0.0, 0.1], [0.05, -0.02]]},
-            {"id": "diag", "kind": "const", "value": [1e-4, 1e-4, 1e-4]},
-            {"id": "y_dist", "kind": "call",
-             "callable": "torch.distributions.LowRankMultivariateNormal",
-             "returns": "distribution",
-             "kwargs": {"loc": {"$ref": "mu"}, "cov_factor": {"$ref": "F"},
-                        "cov_diag": {"$ref": "diag"}}}
-          ]
-        }
-
-    ### Key distribution classes
-    - Normal + Independent: diagonal Gaussian
-    - MultivariateNormal: full-covariance Gaussian
-    - LowRankMultivariateNormal: low-rank + diagonal covariance (efficient)
-    - MixtureSameFamily + Categorical: mixture models
-    - TransformedDistribution: apply invertible transforms
+    ### Available distributions
+    torch: Normal, MultivariateNormal, LowRankMultivariateNormal, Cauchy, StudentT,
+      Laplace, VonMises, Independent, MixtureSameFamily, TransformedDistribution, Categorical
+    pyro: MixtureOfDiagNormals, ProjectedNormal, MultivariateStudentT
+    transforms: AffineTransform, ExpTransform, SigmoidTransform, TanhTransform
 
     ## Scoring
-    The evaluator scores your distribution q(y) by:
-      score = mean(log q(y_i))  for 1,000,000 samples y_i from the true network
-    Higher is better. An additive FLOP penalty (measured via hardware performance
-    counters) is subtracted from the score — brute-force sampling or heavy matrix
-    operations in build_dist will be penalized. Aim for analytical and efficient
-    solutions.
+    Score = mean improvement over a fitted diagonal Gaussian baseline, across models.
+    Higher is better. You may reimplement the forward pass in numpy using the weights.
+    scipy.special.softmax is available.
 
-    ## Tips
-    - Moment propagation through the network layers is a natural analytical approach:
-      propagate mean and covariance through each layer, handling the nonlinearity
-      via analytical approximations (e.g. for ReLU: E[relu(x)] and Var[relu(x)]
-      have known formulas when x is Gaussian).
-    - You may add import statements (numpy, scipy, math, etc.) at the top of the
-      evolve block, above the function definition.
-    - The activation callables and ACTIVATIONS dict are already defined in the same
-      file and available to your function.
+    ## Strategy
+    - Examine what weight keys are present and their shapes to understand the model.
+    - Classification heads (if present) reveal the directions the model uses for output.
+    - The token embedding matrix encodes the model's vocabulary — its statistics
+      (mean, covariance, SVD) contain information about the representation space.
+    - A mixture of Gaussians with per-class means and covariance typically captures
+      more structure than a single Gaussian.
+    - LayerNorm parameters indicate the scale and center of representations.
 
   num_top_programs: 4
   num_diverse_programs: 3

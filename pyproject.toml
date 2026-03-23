@@ -11,16 +11,17 @@ dependencies = [
     "scipy",
     "torch",
     "pyro-ppl",
+    "datasets",
 ]
 
 [dependency-groups]
 dev = ["pre-commit"]
 
 [[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
 explicit = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cpu" }
+torch = { index = "pytorch-cu126" }
 
