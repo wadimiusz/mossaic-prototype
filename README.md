@@ -31,6 +31,24 @@ Then we pose a question like “what is the probability of output in this-and-th
 
 Since we know the value N and hence the precision obtained by the sampling method, we can judge when the sample-free method’s output is at least not worse than sampling. Importantly, we would also know how bad a method is, i.e. there would be directionality to the signals of sampling.
 
+## Results
+
+Slides from the AISC 2026 demo day: [AlphaEvolving sampling](https://wadimiusz.me/mossaic_slides.pdf).
+
+The score is the mean log-probability that the evolved `build_dist` assigns to held-out residual-stream samples, measured against a diagonal-Gaussian baseline. In each setting, one program has to work for all models.
+
+| Setting | Models | Best result | Strategy the search found |
+| --- | --- | --- | --- |
+| Modular addition | 39 (13 primes × 3 seeds) | +385 nats | Forward pass × per-class low-rank Gaussian × Fourier-aware variance |
+| Five task families, task label hidden: modular addition, greater-than, Dyck, DFA, induction | 90 | +24 nats on average | Generic forward pass on random inputs, k-means, diagonal-Gaussian mixture |
+
+Lessons:
+
+- On random MLPs with Gaussian input, the search finds moment propagation, a generic method.
+- On a sentiment transformer, it finds a mixture of low-rank Gaussians plus FFN-SVD directions. Whether that counts as understanding the model is an open question.
+- Generic methods fail where the geometry is unusual: modular addition needs Fourier features on a torus, and a Gaussian mixture in 64 dimensions models a torus poorly.
+- Interpretability may not scale neatly with predictive power. The main open question I took from the project is how the two are connected.
+
 ## Setup
 
 ### Prerequisites
