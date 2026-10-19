@@ -122,4 +122,4 @@ This has been written with huge help from claude code. So:
 - kudos to Claude Opus 4.6 (if it's a moral agent — and I posit we don't know otherwise, — it should basically be treated as a co-author),
 - but also, watch out for any silliness I could have missed. I test things myself manually, of course, but with vide-coding it's always good to be paranoid.
 
-Thanks also to Claude, who helped tidy up this README in October 2026 and pulled the Results section out of my slides.
+Thanks also to Claude 5.5, who helped tidy up this README in October 2026 and pulled the Results section out of my slides.
